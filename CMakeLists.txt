@@ -82,6 +82,12 @@ option(TON_USE_JEMALLOC "Use \"ON\" to enable JeMalloc." OFF)
 #END internal
 
 option(TONLIB_ENABLE_JNI "Use \"ON\" to enable JNI-compatible TonLib API.")
+option(TONLIB_ENABLE_DOTNET "Use \"ON\" to enable generation of C++/CLI or C++/CX TonLib API bindings.")
+
+if (TONLIB_ENABLE_DOTNET AND (CMAKE_VERSION VERSION_LESS "3.1.0"))
+  message(FATAL_ERROR "CMake 3.1.0 or higher is required. You are running version ${CMAKE_VERSION}.")
+endif()
+
 option(TON_USE_ASAN "Use \"ON\" to enable AddressSanitizer." OFF)
 option(TON_USE_TSAN "Use \"ON\" to enable ThreadSanitizer." OFF)
 option(TON_USE_UBSAN "Use \"ON\" to enable UndefinedBehaviorSanitizer." OFF)
@@ -381,6 +387,16 @@ if (NOT CMAKE_CROSSCOMPILING)
     set(TDMIME_AUTO tdmime_auto)
   endif()
   add_custom_target(prepare_cross_compiling DEPENDS tl_generate_common tlb_generate_block ${TDMIME_AUTO})
+  #if (TONLIB_ENABLE_DOTNET)
+  #  add_custom_target(remove_cpp_documentation
+  #    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  #    COMMAND remove_documentation ${TL_TD_AUTO} td/telegram/Client.h td/telegram/Log.h td/tl/TlObject.h
+  #    COMMENT "Remove C++ documentation from sources"
+  #    DEPENDS remove_documentation tl_generate_common generate_dotnet_api ${TL_TD_AUTO} td/telegram/Client.h td/telegram/Log.h td/tl/TlObject.h
+  #  )
+
+  #  add_dependencies(prepare_cross_compiling generate_dotnet_api remove_cpp_documentation)
+  #endif()
 endif()
 
 #TESTS

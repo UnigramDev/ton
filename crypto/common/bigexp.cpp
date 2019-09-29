@@ -196,7 +196,7 @@ td::uint64 NegExpInt64Table::umulnexps32(td::uint64 x, unsigned k, bool trunc) c
 }
 
 td::int64 NegExpInt64Table::mulnexps32(td::int64 x, unsigned k, bool trunc) const {
-  return x >= 0 ? umulnexps32(x, k, trunc) : -umulnexps32(-x, k, trunc);
+  return x >= 0 ? umulnexps32(x, k, trunc) : -(td::int64)umulnexps32(-x, k, trunc);
 }
 
 const NegExpInt64Table& NegExpInt64Table::table() {

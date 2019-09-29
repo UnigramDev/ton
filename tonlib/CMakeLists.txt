@@ -90,6 +90,32 @@ target_link_libraries(tonlibjson_private PUBLIC tonlib PRIVATE tl_tonlib_api_jso
 set(TONLIB_JSON_HEADERS tonlib/tonlib_client_json.h)
 set(TONLIB_JSON_SOURCE tonlib/tonlib_client_json.cpp)
 
+if (TONLIB_ENABLE_DOTNET)
+  add_library(tddotnet SHARED
+    tonlib/ClientDotNet.cpp
+    tonlib/LogDotNet.cpp
+    ${TL_DOTNET_SCHEME_SOURCE}
+  )
+  set(VCPKG_APPLOCAL_LIBRARY_DEPS ON)
+  set_target_properties(tddotnet PROPERTIES OUTPUT_NAME Tonlib)
+  target_link_libraries(tddotnet PRIVATE tonlib tdutils)
+  target_include_directories(tddotnet PUBLIC
+    $<BUILD_INTERFACE:${TL_TD_AUTO_INCLUDES}>
+  )
+  if (NOT CMAKE_CROSSCOMPILING)
+    add_dependencies(tddotnet generate_dotnet_api)
+  endif()
+
+  target_compile_options(tddotnet PRIVATE "/doc")
+  if (CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
+    set_target_properties(tddotnet PROPERTIES VS_WINRT_COMPONENT "true")
+    target_compile_options(tddotnet PUBLIC "/ZW")
+  else()
+    set_target_properties(tddotnet PROPERTIES COMPILE_FLAGS "/GR /clr")
+    target_compile_options(tddotnet PUBLIC "/EHa")
+  endif()
+endif()
+
 include(GenerateExportHeader)
 
 add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
@@ -108,6 +134,25 @@ target_compile_definitions(tonlibjson_static PUBLIC TONLIBJSON_STATIC_DEFINE)
 target_include_directories(tonlibjson_static PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+  
+set(BIGOBJ)
+if (WIN32 OR CYGWIN)
+  if (MSVC)
+    set(BIGOBJ "/bigobj")
+  elseif (GCC)
+    set(BIGOBJ "-Wa,-mbig-obj")
+  endif()
+endif()
+if (BIGOBJ)
+  #target_compile_options(tdc PUBLIC ${BIGOBJ})
+  #target_compile_options(tdcore PUBLIC ${BIGOBJ})
+  target_compile_options(tonlib PUBLIC ${BIGOBJ})
+  #target_compile_options(tdjson PUBLIC ${BIGOBJ})
+  #target_compile_options(tdjson_static PUBLIC ${BIGOBJ})
+  if (TONLIB_ENABLE_DOTNET)
+    target_compile_options(tddotnet PUBLIC "/bigobj")
+  endif()
+endif()
 
 add_library(TonlibJson INTERFACE)
 target_link_libraries(TonlibJson INTERFACE tonlibjson)

@@ -26,11 +26,20 @@ set(TL_TONLIB_API
 )
 set(TL_TONLIB_API ${TL_TONLIB_API} PARENT_SCOPE)
 
+set(TL_TONLIB_API_TLO ${CMAKE_CURRENT_SOURCE_DIR}/scheme/tonlib_api.tlo)
+set(TL_TONLIB_API_TLO ${TL_TONLIB_API_TLO} PARENT_SCOPE)
+
 set(TL_TONLIB_API_JSON
   ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/tonlib_api_json.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/tonlib_api_json.h
 )
 set(TL_TONLIB_API_JSON ${TL_TONLIB_API_JSON} PARENT_SCOPE)
+
+set(TL_DOTNET_AUTO
+  ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/TdDotNetApi.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/TdDotNetApi.h
+  PARENT_SCOPE
+)
 
 set(TL_GENERATE_COMMON_SOURCE
   generate_common.cpp
@@ -78,6 +87,27 @@ if (NOT CMAKE_CROSSCOMPILING)
   if (TONLIB_ENABLE_JNI)
     target_compile_definitions(generate_common PRIVATE TONLIB_ENABLE_JNI=1)
   endif()
+  if (TONLIB_ENABLE_DOTNET)
+    target_compile_definitions(generate_common PRIVATE DISABLE_HPP_DOCUMENTATION=1)
+  endif()
+  
+  if (TONLIB_ENABLE_DOTNET)
+    if (PHP_EXECUTABLE)
+      set(GENERATE_DOTNET_API_CMD td_generate_dotnet_api ${TL_TONLIB_API_TLO} && ${PHP_EXECUTABLE} DotnetTlDocumentationGenerator.php scheme/tonlib_api.tl auto/tl/TdDotNetApi.h)
+    else()
+      set(GENERATE_DOTNET_API_CMD td_generate_dotnet_api ${TL_TONLIB_API_TLO})
+    endif()
+
+    add_executable(td_generate_dotnet_api generate_dotnet.cpp tl_writer_dotnet.h)
+    target_link_libraries(td_generate_dotnet_api PRIVATE tdtl)
+    add_custom_target(generate_dotnet_api
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMAND ${GENERATE_DOTNET_API_CMD} ${TL_TONLIB_API_TLO}
+      COMMENT "Generate .NET API files"
+      DEPENDS td_generate_dotnet_api ${TL_TONLIB_API_TLO} DotnetTlDocumentationGenerator.php
+    )
+  endif()
+  
 else()
   add_custom_target(tl_generate_common)
 endif()

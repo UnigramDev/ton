@@ -35,6 +35,14 @@ if (TONLIB_ENABLE_JNI)
 else()
   set(TL_JNI_OBJECT)
 endif()
+
+set_source_files_properties(${TL_DOTNET_AUTO} PROPERTIES GENERATED TRUE)
+set(TL_DOTNET_SCHEME_SOURCE
+  ${TL_DOTNET_AUTO}
+  ${CMAKE_CURRENT_SOURCE_DIR}/tl/tl_dotnet_object.h
+  PARENT_SCOPE
+)
+
 set_source_files_properties(${TL_TONLIB_API} PROPERTIES GENERATED TRUE)
 set_source_files_properties(${TL_TONLIB_API_JSON} PROPERTIES GENERATED TRUE)
 add_library(tl_tonlib_api STATIC ${TL_TONLIB_API} tl/tl_object_parse.h tl/tl_object_store.h tl/TlObject.h
