@@ -67,7 +67,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     }
     return false;
   }
-  td::uint32 get_vertical_height(BlockSeqno seqno) const override {
+  td::uint32 get_vertical_seqno(BlockSeqno seqno) const override {
     size_t best = 0;
     for (size_t i = 0; i < hardforks_.size(); i++) {
       if (seqno >= hardforks_[i].seqno()) {
@@ -75,6 +75,12 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
       }
     }
     return static_cast<td::uint32>(best);
+  }
+  td::uint32 get_maximal_vertical_seqno() const override {
+    return td::narrow_cast<td::uint32>(hardforks_.size());
+  }
+  td::uint32 get_last_fork_masterchain_seqno() const override {
+    return hardforks_.size() ? hardforks_.rbegin()->seqno() : 0;
   }
   td::uint32 get_filedb_depth() const override {
     return db_depth_;
@@ -125,7 +131,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                               std::function<bool(ShardIdFull)> check_shard, bool allow_blockchain_init,
                               td::ClocksBase::Duration sync_blocks_before, td::ClocksBase::Duration block_ttl,
-                              td::ClocksBase::Duration archive_ttl, td::ClocksBase::Duration state_ttl,
+                              td::ClocksBase::Duration state_ttl, td::ClocksBase::Duration archive_ttl,
                               td::ClocksBase::Duration key_proof_ttl, bool initial_sync_disabled)
       : zero_block_id_(zero_block_id)
       , init_block_id_(init_block_id)
