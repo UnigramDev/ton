@@ -180,12 +180,14 @@ class TlWriterDotNet : public TL_writer {
   }
   std::string gen_output_begin(void) const override {
     return prefix_ +
-           "#include \"tl/tl_dotnet_object.h\"\n\n"
+           "#include \"tl/tl_dotnet_object.h\";\n\n"
+           "namespace Ton {\n"
            "namespace Tonlib {\n"
            "namespace Api {\n";
   }
   std::string gen_output_end() const override {
     return "}\n"
+           "}\n"
            "}\n";
   }
 
@@ -224,7 +226,7 @@ class TlWriterDotNet : public TL_writer {
       fixed_field_name += "Value";
     }
     if (type_name.substr(0, field_name.size()) == field_name) {
-      auto fixed_type_name = "::Tonlib::Api::" + type_name;
+      auto fixed_type_name = "::Ton::Tonlib::Api::" + type_name;
       std::stringstream ss;
       ss << "private:\n";
       ss << "  " << fixed_type_name << " " << fixed_field_name << "PrivateField;\n";
@@ -251,7 +253,7 @@ class TlWriterDotNet : public TL_writer {
     ss << "\n";
     if (storer_type) {
       ss << (is_header_ ? "  virtual " : "") << "String^ " << (is_header_ ? "" : gen_class_name(class_name) + "::")
-         << "ToString()" << (is_header_ ? " override;" : " {\n  return ::Tonlib::Api::ToString(this);\n}")
+         << "ToString()" << (is_header_ ? " override;" : " {\n  return ::Ton::Tonlib::Api::ToString(this);\n}")
          << "\n";
     } else {
       ss << (is_header_ ? "  virtual " : "") << "NativeObject^ "
@@ -259,7 +261,7 @@ class TlWriterDotNet : public TL_writer {
       if (is_header_) {
         ss << ";\n";
       } else {
-        ss << "{\n  return REF_NEW NativeObject(::Tonlib::Api::ToUnmanaged(this).release());\n}\n";
+        ss << "{\n  return REF_NEW NativeObject(::Ton::Tonlib::Api::ToUnmanaged(this).release());\n}\n";
       }
     }
     return ss.str();
@@ -287,7 +289,7 @@ class TlWriterDotNet : public TL_writer {
       pos += 6;
     }
     if (field_type.substr(pos, 6) != "String" && to_upper(field_type[pos]) == field_type[pos]) {
-      field_type = field_type.substr(0, pos) + "::Tonlib::Api::" + field_type.substr(pos);
+      field_type = field_type.substr(0, pos) + "::Ton::Tonlib::Api::" + field_type.substr(pos);
     }
     ss << field_type << " " << to_camelCase(a.name);
     return ss.str();
