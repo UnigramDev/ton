@@ -18,6 +18,7 @@
 
 #include <memory>
 
+namespace Ton {
 namespace Tonlib {
 namespace Api {
 
@@ -213,16 +214,14 @@ inline td::SecureString SecureToUnmanaged(Array<byte>^ from) {
 }
 
 inline std::vector<td::SecureString> SecureToUnmanaged(Array<String^>^ from) {
-  if (!from) {
-    //return td::SecureString();
-  }
-
-  //ArrayIndexType size = ArraySize(from);
-  //td::SecureString res(size, '\0');
-  //for (ArrayIndexType i = 0; i < size; i++) {
-  //  res[i] = static_cast<char>(ArrayGet(from, i));
-  //}
   std::vector<td::SecureString> res;
+  if (from && ArraySize(from)) {
+    ArrayIndexType size = ArraySize(from);
+    res.reserve(size);
+    for (ArrayIndexType i = 0; i < size; i++) {
+      res.push_back(td::SecureString(string_to_unmanaged(ArrayGet(from, i))));
+    }
+  }
   return res;
 }
 
@@ -257,3 +256,4 @@ inline String^ ToString(BaseObject^ from) {
 
 }  // namespace Api
 }  // namespace Tonlib
+}  // namespace Ton

@@ -93,11 +93,10 @@ set(TONLIB_JSON_SOURCE tonlib/tonlib_client_json.cpp)
 if (TONLIB_ENABLE_DOTNET)
   add_library(tddotnet SHARED
     tonlib/ClientDotNet.cpp
-    tonlib/LogDotNet.cpp
     ${TL_DOTNET_SCHEME_SOURCE}
   )
   set(VCPKG_APPLOCAL_LIBRARY_DEPS ON)
-  set_target_properties(tddotnet PROPERTIES OUTPUT_NAME Tonlib)
+  set_target_properties(tddotnet PROPERTIES OUTPUT_NAME Ton.Tonlib)
   target_link_libraries(tddotnet PRIVATE tonlib tdutils)
   target_include_directories(tddotnet PUBLIC
     $<BUILD_INTERFACE:${TL_TD_AUTO_INCLUDES}>
@@ -147,8 +146,8 @@ if (BIGOBJ)
   #target_compile_options(tdc PUBLIC ${BIGOBJ})
   #target_compile_options(tdcore PUBLIC ${BIGOBJ})
   target_compile_options(tonlib PUBLIC ${BIGOBJ})
-  #target_compile_options(tdjson PUBLIC ${BIGOBJ})
-  #target_compile_options(tdjson_static PUBLIC ${BIGOBJ})
+  target_compile_options(tonlibjson PUBLIC ${BIGOBJ})
+  target_compile_options(tonlibjson_static PUBLIC ${BIGOBJ})
   if (TONLIB_ENABLE_DOTNET)
     target_compile_options(tddotnet PUBLIC "/bigobj")
   endif()

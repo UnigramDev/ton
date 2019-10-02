@@ -12,6 +12,7 @@
 
 #include <cstdint>
 
+namespace Ton {
 namespace Tonlib {
 
 using namespace CxCli;
@@ -89,12 +90,6 @@ public:
       auto response = client->receive(10.0);
       if (response.object != nullptr) {
         ProcessResult(response.id, Api::FromUnmanaged(*response.object));
-
-        /*if (response.object->get_id() == ton::tonlib_api::updateAuthorizationState::ID &&
-            static_cast<ton::tonlib_api::updateAuthorizationState &>(*response.object).authorization_state_->get_id() ==
-            ton::tonlib_api::authorizationStateClosed::ID) {
-          break;
-        }*/
       }
     }
   }
@@ -133,3 +128,4 @@ private:
 };
 
 }  // namespace Tonlib
+}  // namespace Ton

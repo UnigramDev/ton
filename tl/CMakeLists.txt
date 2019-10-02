@@ -61,3 +61,21 @@ target_include_directories(tl_tonlib_api_json PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../crypto/>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/generate> )
+
+set(BIGOBJ)
+if (WIN32 OR CYGWIN)
+  if (MSVC)
+    set(BIGOBJ "/bigobj")
+  elseif (GCC)
+    set(BIGOBJ "-Wa,-mbig-obj")
+  endif()
+endif()
+if (BIGOBJ)
+  target_compile_options(tl_api PUBLIC ${BIGOBJ})
+  target_compile_options(tl_lite_api PUBLIC ${BIGOBJ})
+  target_compile_options(tl_tonlib_api PUBLIC ${BIGOBJ})
+  target_compile_options(tl_tonlib_api_json PUBLIC ${BIGOBJ})
+  if (TD_ENABLE_DOTNET)
+    target_compile_options(tddotnet PUBLIC "/bigobj")
+  endif()
+endif()
