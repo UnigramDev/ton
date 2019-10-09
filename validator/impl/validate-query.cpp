@@ -378,7 +378,7 @@ bool ValidateQuery::init_parse() {
   block::gen::ExtBlkRef::Record mcref;  // _ ExtBlkRef = BlkMasterInfo;
   ShardIdFull shard;
   if (!(tlb::unpack_cell(block_root_, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
-        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) && !info.vert_seq_no &&
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) &&
         block::gen::BlkPrevInfo{info.after_merge}.validate_ref(info.prev_ref) &&
         (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)) && tlb::unpack_cell(blk.extra, extra))) {
     return reject_query("cannot unpack block header");
@@ -393,6 +393,7 @@ bool ValidateQuery::init_parse() {
     return fatal_error("invalid Merkle update in block");
   }
   global_id_ = blk.global_id;
+  vert_seqno_ = info.vert_seq_no;
   prev_state_hash_ = upd_cs.prefetch_ref(0)->get_hash(0).bits();
   state_hash_ = upd_cs.prefetch_ref(1)->get_hash(0).bits();
   start_lt_ = info.start_lt;
@@ -427,6 +428,9 @@ bool ValidateQuery::init_parse() {
   }
   if (is_key_block_ && !shard.is_masterchain()) {
     return reject_query("a non-masterchain block cannot be a key block");
+  }
+  if (info.vert_seqno_incr) {
+    return reject_query("new blocks cannot have vert_seqno_incr set");
   }
   if (info.after_merge != after_merge_) {
     return reject_query("after_merge value mismatch in block header");
@@ -683,7 +687,13 @@ bool ValidateQuery::try_unpack_mc_state() {
       CHECK(!mc_seqno_ || new_shard_conf_->get_mc_hash().not_null());
     }
     if (global_id_ != config_->get_global_blockchain_id()) {
-      return reject_query("blockchain global id mismatch");
+      return reject_query(PSTRING() << "blockchain global id mismatch: new block has " << global_id_
+                                    << " while the masterchain configuration expects "
+                                    << config_->get_global_blockchain_id());
+    }
+    if (vert_seqno_ != config_->get_vert_seqno()) {
+      return reject_query(PSTRING() << "vertical seqno mismatch: new block has " << vert_seqno_
+                                    << " while the masterchain configuration expects " << config_->get_vert_seqno());
     }
     prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
     if (prev_key_block_exists_) {
@@ -734,26 +744,10 @@ bool ValidateQuery::fetch_config_params() {
     if (cell.is_null()) {
       return fatal_error("cannot fetch current gas prices and limits from masterchain configuration");
     }
-    auto f = [self = this](const auto& r, td::uint64 spec_limit) {
-      self->compute_phase_cfg_.gas_limit = r.gas_limit;
-      self->compute_phase_cfg_.special_gas_limit = spec_limit;
-      self->compute_phase_cfg_.gas_credit = r.gas_credit;
-      self->compute_phase_cfg_.gas_price = r.gas_price;
-      self->storage_phase_cfg_.freeze_due_limit = td::RefInt256{true, r.freeze_due_limit};
-      self->storage_phase_cfg_.delete_due_limit = td::RefInt256{true, r.delete_due_limit};
-    };
-    block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
-    if (tlb::unpack_cell(cell, rec)) {
-      f(rec, rec.special_gas_limit);
-    } else {
-      block::gen::GasLimitsPrices::Record_gas_prices rec0;
-      if (tlb::unpack_cell(std::move(cell), rec0)) {
-        f(rec0, rec0.gas_limit);
-      } else {
-        return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
-      }
+    if (!compute_phase_cfg_.parse_GasLimitsPrices(std::move(cell), storage_phase_cfg_.freeze_due_limit,
+                                                  storage_phase_cfg_.delete_due_limit)) {
+      return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
     }
-    compute_phase_cfg_.compute_threshold();
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
     compute_phase_cfg_.global_config = config_->get_root_cell();
@@ -1118,6 +1112,10 @@ bool ValidateQuery::unpack_one_prev_state(block::ShardState& ss, BlockIdExt blki
   if (res.is_error()) {
     return fatal_error(std::move(res));
   }
+  if (ss.vert_seqno_ > vert_seqno_) {
+    return reject_query(PSTRING() << "one of previous states " << ss.id_.to_str() << " has vertical seqno "
+                                  << ss.vert_seqno_ << " larger than that of the new block " << vert_seqno_);
+  }
   return true;
 }
 
@@ -1163,6 +1161,10 @@ bool ValidateQuery::unpack_next_state() {
   if (!is_masterchain() && ns_.mc_blk_ref_ != mc_blkid_) {
     return reject_query("new state refers to masterchain block "s + ns_.mc_blk_ref_.to_str() + " different from " +
                         mc_blkid_.to_str() + " indicated in block header");
+  }
+  if (ns_.vert_seqno_ != vert_seqno_) {
+    return reject_query(PSTRING() << "new state has vertical seqno " << ns_.vert_seqno_ << " different from "
+                                  << vert_seqno_ << " declared in the new block header");
   }
   // ...
   return true;
@@ -5227,7 +5229,7 @@ bool ValidateQuery::check_block_create_stats() {
     auto key = td::Bits256::zero();
     auto old_val = ps_.block_create_stats_->lookup(key);
     auto new_val = ns_.block_create_stats_->lookup(key);
-    if (new_val.is_null()) {
+    if (new_val.is_null() && (!created_by_.is_zero() || block_create_total_)) {
       return reject_query(
           "new masterchain state does not contain a BlockCreator entry with zero key with total statistics");
     }

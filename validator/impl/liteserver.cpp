@@ -1445,47 +1445,82 @@ void LiteQuery::perform_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, 
     fatal_error("destination block "s + to.to_str() + " is not a valid masterchain block id");
     return;
   }
-  if (!(mode & 1)) {
+  if (mode & 1) {
+    if (mode & 0x1000) {
+      BlockIdExt bblk = (from.seqno() > to.seqno()) ? from : to;
+      td::actor::send_closure_later(manager_, &ValidatorManager::get_shard_state_from_db_short, bblk,
+                                    [ Self = actor_id(this), from, to, bblk, mode ](td::Result<Ref<ShardState>> res) {
+                                      if (res.is_error()) {
+                                        td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+                                      } else {
+                                        td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockProof, from,
+                                                                      to, mode, bblk,
+                                                                      Ref<MasterchainStateQ>(res.move_as_ok()));
+                                      }
+                                    });
+    } else {
+      td::actor::send_closure_later(
+          manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
+          [ Self = actor_id(this), from, to, mode ](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+            if (res.is_error()) {
+              td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+            } else {
+              auto pair = res.move_as_ok();
+              td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockProof, from, to, mode, pair.second,
+                                            Ref<MasterchainStateQ>(std::move(pair.first)));
+            }
+          });
+    }
+  } else if (mode & 2) {
     td::actor::send_closure_later(
         manager_, &ton::validator::ValidatorManager::get_top_masterchain_state_block,
-        [ Self = actor_id(this), from, mode ](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res)->void {
+        [ Self = actor_id(this), from, mode ](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
           if (res.is_error()) {
             td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
           } else {
             auto pair = res.move_as_ok();
             td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockProof, from, pair.second, mode,
-                                          Ref<MasterchainStateQ>(std::move(pair.first)));
+                                          pair.second, Ref<MasterchainStateQ>(std::move(pair.first)));
           }
         });
   } else {
-    base_blk_id_ = (from.seqno() > to.seqno()) ? from : to;
-    td::actor::send_closure_later(manager_, &ValidatorManager::get_shard_state_from_db_short, base_blk_id_,
-                                  [ Self = actor_id(this), from, to, mode ](td::Result<Ref<ShardState>> res) {
+    td::actor::send_closure_later(manager_, &ton::validator::ValidatorManager::get_shard_client_state, false,
+                                  [ Self = actor_id(this), from, mode ](td::Result<BlockIdExt> res) {
                                     if (res.is_error()) {
                                       td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
                                     } else {
-                                      td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockProof, from, to,
-                                                                    mode, Ref<MasterchainStateQ>(res.move_as_ok()));
+                                      td::actor::send_closure_later(Self, &LiteQuery::perform_getBlockProof, from,
+                                                                    res.move_as_ok(), mode | 0x1001);
                                     }
                                   });
   }
 }
 
-void LiteQuery::continue_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, int mode,
+void LiteQuery::continue_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, BlockIdExt baseblk,
                                        Ref<MasterchainStateQ> state) {
+  base_blk_id_ = baseblk;
+  if (!base_blk_id_.is_masterchain_ext()) {
+    fatal_error("reference masterchain block "s + base_blk_id_.to_str() + " for constructing a proof chain is invalid");
+    return;
+  }
   if (!(mode & 1)) {
-    base_blk_id_ = to;
     if (!to.is_masterchain_ext()) {
       fatal_error("last masterchain block id "s + to.to_str() + " is invalid");
-      return;
-    }
-    if (from.seqno() > to.seqno()) {
-      fatal_error("client knows block "s + from.to_str() + " newer than the latest masterchain block " + to.to_str());
       return;
     }
   }
   if (state.is_null()) {
     fatal_error("obtained no valid masterchain state for block "s + base_blk_id_.to_str());
+    return;
+  }
+  if (from.seqno() > base_blk_id_.seqno()) {
+    fatal_error("client knows block "s + from.to_str() + " newer than the reference masterchain block " +
+                base_blk_id_.to_str());
+    return;
+  }
+  if (to.seqno() > base_blk_id_.seqno()) {
+    fatal_error("client knows block "s + to.to_str() + " newer than the reference masterchain block " +
+                base_blk_id_.to_str());
     return;
   }
   mc_state0_ = Ref<MasterchainStateQ>(state);
@@ -1497,13 +1532,13 @@ void LiteQuery::continue_getBlockProof(ton::BlockIdExt from, ton::BlockIdExt to,
   LOG(INFO) << "continuing getBlockProof(" << mode << ", " << from.to_str() << ", " << to.to_str()
             << ") query with a state for " << base_blk_id_.to_str();
   if (!state->check_old_mc_block_id(from)) {
-    fatal_error("source masterchain block "s + from.to_str() + " is unknown from the perspective of newer block " +
-                base_blk_id_.to_str());
+    fatal_error("proof source masterchain block "s + from.to_str() +
+                " is unknown from the perspective of reference block " + base_blk_id_.to_str());
     return;
   }
   if (!state->check_old_mc_block_id(to)) {
-    fatal_error("destination masterchain block "s + to.to_str() + " is unknown from the perspective of newer block " +
-                base_blk_id_.to_str());
+    fatal_error("proof destination masterchain block "s + to.to_str() +
+                " is unknown from the perspective of reference block " + base_blk_id_.to_str());
     return;
   }
   chain_ = std::make_unique<block::BlockProofChain>(from, to, mode);

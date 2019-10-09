@@ -39,7 +39,23 @@ class KeyValueDir : public KeyValue {
   }
 
   td::Status erase(td::Slice key) override {
-    return td::unlink(key.str());
+    return td::unlink(to_file_path(key.str()));
+  }
+
+  void foreach_key(std::function<void(td::Slice)> f) override {
+    int cnt = 0;
+    td::WalkPath::run(directory_, [&](td::Slice path, td::WalkPath::Type type) {
+      cnt++;
+      if (type == td::WalkPath::Type::EnterDir) {
+        if (cnt != 1) {
+          return td::WalkPath::Action::SkipDir;
+        }
+      } else if (type == td::WalkPath::Type::NotDir) {
+        f(path);
+      }
+
+      return td::WalkPath::Action::Continue;
+    }).ignore();
   }
 
  private:
@@ -81,6 +97,11 @@ class KeyValueInmemory : public KeyValue {
     }
     map_.erase(it);
     return td::Status::OK();
+  }
+  void foreach_key(std::function<void(td::Slice)> f) override {
+    for (auto &it : map_) {
+      f(it.first);
+    }
   }
 
  private:

@@ -47,13 +47,13 @@ class TonlibClient : public td::actor::Actor {
  private:
   enum class State { Uninited, Running, Closed } state_ = State::Uninited;
   td::unique_ptr<TonlibCallback> callback_;
+
+  // Config
   Config config_;
   td::uint32 config_generation_{0};
   std::string blockchain_name_;
   bool ignore_cache_{false};
-
   bool use_callbacks_for_network_{false};
-  td::actor::ActorId<ExtClientOutbound> ext_client_outbound_;
 
   // KeyStorage
   std::shared_ptr<KeyValue> kv_;
@@ -62,6 +62,7 @@ class TonlibClient : public td::actor::Actor {
 
   // network
   td::actor::ActorOwn<ton::adnl::AdnlExtClient> raw_client_;
+  td::actor::ActorId<ExtClientOutbound> ext_client_outbound_;
   td::actor::ActorOwn<LastBlock> raw_last_block_;
   ExtClient client_;
 
@@ -116,6 +117,10 @@ class TonlibClient : public td::actor::Actor {
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::getLogTags& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::addLogMessage& request);
 
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::encrypt& request);
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::decrypt& request);
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::kdf& request);
+
   template <class T, class P>
   td::Status do_request(const T& request, P&& promise) {
     return td::Status::Error(400, "Function is unsupported");
@@ -158,6 +163,7 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::exportKey& request,
                         td::Promise<object_ptr<tonlib_api::exportedKey>>&& promise);
   td::Status do_request(const tonlib_api::deleteKey& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
+  td::Status do_request(const tonlib_api::deleteAllKeys& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
   td::Status do_request(const tonlib_api::importKey& request, td::Promise<object_ptr<tonlib_api::key>>&& promise);
 
   td::Status do_request(const tonlib_api::exportPemKey& request,

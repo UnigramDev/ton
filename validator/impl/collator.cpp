@@ -518,6 +518,8 @@ bool Collator::unpack_last_mc_state() {
     prev_key_block_seqno_ = 0;
   }
   LOG(DEBUG) << "previous key block is " << prev_key_block_.to_str() << " (exists=" << prev_key_block_exists_ << ")";
+  vert_seqno_ = config_->get_vert_seqno();
+  LOG(DEBUG) << "vertical seqno (vert_seqno) is " << vert_seqno_;
   auto limits = config_->get_block_limits(is_masterchain());
   if (limits.is_error()) {
     return fatal_error(limits.move_as_error());
@@ -686,6 +688,12 @@ bool Collator::unpack_one_last_state(block::ShardState& ss, BlockIdExt blkid, Re
   if (res.is_error()) {
     return fatal_error(std::move(res));
   }
+  if (ss.vert_seqno_ > vert_seqno_) {
+    return fatal_error(
+        PSTRING() << "cannot create new block with vertical seqno " << vert_seqno_
+                  << " prescribed by the current masterchain configuration because the previous state of shard "
+                  << ss.id_.to_str() << " has larger vertical seqno " << ss.vert_seqno_);
+  }
   return true;
 }
 
@@ -712,8 +720,8 @@ bool Collator::split_last_state(block::ShardState& ss) {
 
 // SETS: account_dict, shard_libraries_, mc_state_extra
 //    total_balance_ = old_total_balance_, total_validator_fees_
-// SETS: overload_history, underload_history
-// SETS: prev_state_utime_, prev_state_lt_
+// SETS: overload_history_, underload_history_
+// SETS: prev_state_utime_, prev_state_lt_, prev_vert_seqno_
 // SETS: out_msg_queue, processed_upto_, ihr_pending
 bool Collator::import_shard_state_data(block::ShardState& ss) {
   account_dict = std::move(ss.account_dict_);
@@ -723,6 +731,7 @@ bool Collator::import_shard_state_data(block::ShardState& ss) {
   underload_history_ = ss.underload_history_;
   prev_state_utime_ = ss.utime_;
   prev_state_lt_ = ss.lt_;
+  prev_vert_seqno_ = ss.vert_seqno_;
   total_balance_ = old_total_balance_ = std::move(ss.total_balance_);
   value_flow_.from_prev_blk = old_total_balance_;
   total_validator_fees_ = std::move(ss.total_validator_fees_);
@@ -1466,26 +1475,10 @@ bool Collator::fetch_config_params() {
     if (cell.is_null()) {
       return fatal_error("cannot fetch current gas prices and limits from masterchain configuration");
     }
-    auto f = [self = this](const auto& r, td::uint64 spec_limit) {
-      self->compute_phase_cfg_.gas_limit = r.gas_limit;
-      self->compute_phase_cfg_.special_gas_limit = spec_limit;
-      self->compute_phase_cfg_.gas_credit = r.gas_credit;
-      self->compute_phase_cfg_.gas_price = r.gas_price;
-      self->storage_phase_cfg_.freeze_due_limit = td::RefInt256{true, r.freeze_due_limit};
-      self->storage_phase_cfg_.delete_due_limit = td::RefInt256{true, r.delete_due_limit};
-    };
-    block::gen::GasLimitsPrices::Record_gas_prices_ext rec;
-    if (tlb::unpack_cell(cell, rec)) {
-      f(rec, rec.special_gas_limit);
-    } else {
-      block::gen::GasLimitsPrices::Record_gas_prices rec0;
-      if (tlb::unpack_cell(std::move(cell), rec0)) {
-        f(rec0, rec0.gas_limit);
-      } else {
-        return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
-      }
+    if (!compute_phase_cfg_.parse_GasLimitsPrices(std::move(cell), storage_phase_cfg_.freeze_due_limit,
+                                                  storage_phase_cfg_.delete_due_limit)) {
+      return fatal_error("cannot unpack current gas prices and limits from masterchain configuration");
     }
-    compute_phase_cfg_.compute_threshold();
     compute_phase_cfg_.block_rand_seed = rand_seed_;
     compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
     compute_phase_cfg_.global_config = config_->get_root_cell();
@@ -3115,7 +3108,8 @@ bool Collator::create_mc_state_extra() {
     CHECK(cb.store_long_bool(0x17, 8) && cb.append_cellslice_bool(block_create_stats_->get_root()));
     auto cs = vm::load_cell_slice_ref(cb.finalize());
     state_extra.r1.block_create_stats = cs;
-    if (verify >= 1) {
+    if (verify >= 2) {
+      LOG(INFO) << "verifying new BlockCreateStats";
       if (!block::gen::t_BlockCreateStats.validate_csr(cs)) {
         cs->print_rec(std::cerr);
         block::gen::t_BlockCreateStats.print(std::cerr, *cs);
@@ -3170,10 +3164,12 @@ bool Collator::update_block_creator_count(td::ConstBitPtr key, unsigned shard_in
 int Collator::creator_count_outdated(td::ConstBitPtr key, vm::CellSlice& cs) {
   block::DiscountedCounter mc_cnt, shard_cnt;
   if (!(block::fetch_CreatorStats(cs, mc_cnt, shard_cnt) && cs.empty_ext())) {
-    return fatal_error("cannot unpack CreatorStats for "s + key.to_hex(256) + " from previous masterchain state");
+    fatal_error("cannot unpack CreatorStats for "s + key.to_hex(256) + " from previous masterchain state");
+    return -1;
   }
   if (!(mc_cnt.increase_by(0, now_) && shard_cnt.increase_by(0, now_))) {
-    return fatal_error("cannot amortize counters in CreatorStats for "s + key.to_hex(256));
+    fatal_error("cannot amortize counters in CreatorStats for "s + key.to_hex(256));
+    return -1;
   }
   if (!(mc_cnt.cnt65536 | shard_cnt.cnt65536)) {
     LOG(DEBUG) << "removing stale CreatorStats for " << key.to_hex(256);
@@ -3194,17 +3190,42 @@ bool Collator::update_block_creator_stats() {
       return fatal_error("cannot update CreatorStats for "s + p.first.to_hex());
     }
   }
-  if (!created_by_.is_zero() && !update_block_creator_count(created_by_.as_bits256().bits(), 0, 1)) {
+  auto has_creator = !created_by_.is_zero();
+  if (has_creator && !update_block_creator_count(created_by_.as_bits256().bits(), 0, 1)) {
     return fatal_error("cannot update CreatorStats for "s + created_by_.as_bits256().to_hex());
   }
-  if (!update_block_creator_count(td::Bits256::zero().bits(), block_create_total_, !created_by_.is_zero())) {
+  if ((has_creator || block_create_total_) &&
+      !update_block_creator_count(td::Bits256::zero().bits(), block_create_total_, has_creator)) {
     return fatal_error("cannot update CreatorStats with zero index (representing the sum of other CreatorStats)");
   }
+  // -> DEBUG
+  LOG(INFO) << "scanning for outdated CreatorStats entries";
+  /*
   int cnt = block_create_stats_->filter([this](vm::CellSlice& cs, td::ConstBitPtr key, int key_len) {
     CHECK(key_len == 256);
     return creator_count_outdated(key, cs);
   });
-  LOG(DEBUG) << "removed " << cnt << " stale CreatorStats entries";
+  */
+  // alternative version with partial scan
+  td::Bits256 key;
+  prng::rand_gen().rand_bytes(key.data(), 32);
+  int scanned, cnt = 0;
+  for (scanned = 0; scanned < 100; scanned++) {
+    auto cs = block_create_stats_->lookup_nearest_key(key.bits(), 256, true);
+    if (cs.is_null()) {
+      break;
+    }
+    auto res = creator_count_outdated(key.bits(), cs.write());
+    if (!res) {
+      LOG(DEBUG) << "prunning CreatorStats for " << key.to_hex();
+      block_create_stats_->lookup_delete(key);
+      ++cnt;
+    } else if (res < 0) {
+      return fatal_error("error scanning stale CreatorStats entries");
+    }
+  }
+  // -> DEBUG
+  LOG(INFO) << "removed " << cnt << " stale CreatorStats entries out of " << scanned << " scanned";
   return cnt >= 0;
 }
 
@@ -3414,7 +3435,7 @@ bool Collator::create_shard_state() {
         && global_id_                               // { global_id != 0 }
         && block::ShardId{shard}.serialize(cb)      // shard_id:ShardIdent
         && cb.store_long_bool(new_block_seqno, 32)  // seq_no:uint32
-        && cb.store_long_bool(0, 32)                // vert_seq_no:#
+        && cb.store_long_bool(vert_seqno_, 32)      // vert_seq_no:#
         && cb.store_long_bool(now_, 32)             // gen_utime:uint32
         && cb.store_long_bool(max_lt, 64)           // gen_lt:uint64
         && update_processed_upto()                  // insert new ProcessedUpto
@@ -3549,9 +3570,9 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
          && cb.store_bool_bool(want_split_)                         // want_split:Bool
          && cb.store_bool_bool(want_merge_)                         // want_merge:Bool
          && cb.store_bool_bool(is_key_block_)                       // key_block:Bool
-         && cb.store_long_bool(0, 9)                                // flags:(## 9)
+         && cb.store_long_bool(0, 9)                                // vert_seqno_incr:(## 1) flags:(## 8)
          && cb.store_long_bool(new_block_seqno, 32)                 // seq_no:#
-         && cb.store_long_bool(0, 32)                               // vert_seq_no:#
+         && cb.store_long_bool(vert_seqno_, 32)                     // vert_seq_no:#
          && block::ShardId{shard}.serialize(cb)                     // shard:ShardIdent
          && cb.store_long_bool(now_, 32)                            // gen_utime:uint32
          && cb.store_long_bool(start_lt, 64)                        // start_lt:uint64
