@@ -1,4 +1,5 @@
 "Asm.fif" include
+"TonUtil.fif" include
 
 31 -1<< constant wc_undef
 0 constant wc_base
@@ -182,3 +183,62 @@ dictnew constant special-dict
 -2 constant run_ticktock
 -3 constant split_prepare
 -4 constant split_install
+
+// public key conversion
+
+
+// restricted wallet creation
+"auto/wallet-code.fif" include =: WCode0
+"auto/restricted-wallet-code.fif" include =: RWCode1
+"auto/restricted-wallet2-code.fif" include =: RWCode2
+
+// pubkey amount --
+{ over ."Key " pubkey>$ type ." -> "
+  RWCode1  // code
+  <b 1 32 u, 3 roll 256 u, b>  // data
+  empty_cell  // libs
+  3 roll  // balance
+  0 // split_depth
+  0 // ticktock
+  2 // mode: create
+  register_smc
+  Masterchain swap 6 .Addr cr
+} : create-wallet1
+
+// D x t -- D'
+{ <b rot Gram, swap rot 16 b>idict! not abort"cannot add value"
+} : rdict-entry
+// balance -- dict
+{ dictnew
+  over -32768 rdict-entry
+  over 3/4 */ 92 rdict-entry
+  over 1/2 */ 183 rdict-entry
+  swap 1/4 */ 366 rdict-entry
+  0 548 rdict-entry
+} : make-rdict
+
+// pubkey amount --
+{ over ."Key " pubkey>$ type ." -> "
+  RWCode2  // code
+  <b 1 32 u, 3 pick 256 u, 3 roll make-rdict dict, b>  // data
+  empty_cell  // libs
+  3 roll  // balance
+  0 // split_depth
+  0 // ticktock
+  2 // mode: create
+  register_smc
+  Masterchain swap 6 .Addr cr
+} : create-wallet2
+
+// pubkey amount
+{ over ."Key " pubkey>$ type ." -> "
+  WCode0  // code
+  <b 1 32 u, 3 roll 256 u, b>  // data
+  empty_cell  // libs
+  3 roll  // balance
+  0 // split_depth
+  0 // ticktock
+  2 // mode: create
+  register_smc
+  Masterchain swap 6 .Addr cr
+} : create-wallet0

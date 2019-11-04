@@ -1290,7 +1290,8 @@ void ValidatorManagerImpl::send_get_zero_state_request(BlockIdExt id, td::uint32
 void ValidatorManagerImpl::send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id,
                                                              td::uint32 priority,
                                                              td::Promise<td::BufferSlice> promise) {
-  callback_->download_persistent_state(id, masterchain_block_id, priority, td::Timestamp::in(60.0), std::move(promise));
+  callback_->download_persistent_state(id, masterchain_block_id, priority, td::Timestamp::in(3600.0),
+                                       std::move(promise));
 }
 
 void ValidatorManagerImpl::send_get_block_proof_request(BlockIdExt block_id, td::uint32 priority,
@@ -1839,6 +1840,29 @@ void ValidatorManagerImpl::allow_block_state_gc(BlockIdExt block_id, td::Promise
     }
   }
   UNREACHABLE();
+}
+
+void ValidatorManagerImpl::allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) {
+  promise.set_result(false);
+  return;
+  /*auto P =
+      td::PromiseCreator::lambda([db = db_.get(), promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+        if (R.is_error()) {
+          promise.set_result(false);
+        } else {
+          auto handle = R.move_as_ok();
+          if (!handle->moved_to_archive()) {
+            promise.set_result(false);
+          } else {
+            auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+              R.ensure();
+              promise.set_result(true);
+            });
+            td::actor::send_closure(db, &Db::store_block_handle, handle, std::move(P));
+          }
+        }
+      });
+  get_block_handle(block_id, false, std::move(P));*/
 }
 
 void ValidatorManagerImpl::got_next_gc_masterchain_handle(BlockHandle handle) {

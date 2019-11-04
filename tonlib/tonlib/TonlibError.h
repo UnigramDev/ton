@@ -27,6 +27,8 @@
 // INVALID_MNEMONIC
 // INVALID_BAG_OF_CELLS
 // INVALID_PUBLIC_KEY
+// INVALID_QUERY_ID
+// INVALID_SMC_ID
 // INVALID_ACCOUNT_ADDRESS
 // INVALID_CONFIG
 // INVALID_PEM_KEY
@@ -65,11 +67,20 @@ struct TonlibError {
   static td::Status InvalidAccountAddress() {
     return td::Status::Error(400, "INVALID_ACCOUNT_ADDRESS");
   }
+  static td::Status InvalidQueryId() {
+    return td::Status::Error(400, "INVALID_QUERY_ID");
+  }
+  static td::Status InvalidSmcId() {
+    return td::Status::Error(400, "INVALID_SMC_ID");
+  }
   static td::Status InvalidConfig(td::Slice reason) {
     return td::Status::Error(400, PSLICE() << "INVALID_CONFIG: " << reason);
   }
   static td::Status InvalidPemKey() {
     return td::Status::Error(400, "INVALID_PEM_KEY");
+  }
+  static td::Status NeedConfig() {
+    return td::Status::Error(400, "NeedConfig");
   }
   static td::Status MessageTooLong() {
     return td::Status::Error(400, "MESSAGE_TOO_LONG");
@@ -109,6 +120,9 @@ struct TonlibError {
   }
   static td::Status ValidateTransactions() {
     return td::Status::Error(500, "VALIDATE_TRANSACTION");
+  }
+  static td::Status ValidateConfig() {
+    return td::Status::Error(500, "VALIDATE_CONFIG");
   }
   static td::Status ValidateZeroState(td::Slice message) {
     return td::Status::Error(500, PSLICE() << "VALIDATE_ZERO_STATE: " << message);
